@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Controle de Gastos</title>
+  <link rel="stylesheet" href="styles.css">
+  <!-- Bibliotecas externas: dayjs para datas e jsPDF para gerar PDF -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.9/dayjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.9/plugin/advancedFormat.min.js"></script>
+  <script>dayjs.extend(dayjs_plugin_advancedFormat)</script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body>
+  <!-- Estrutura da aplicação: sidebar + main -->
+  <div class="app">
+    <aside class="sidebar">
+      <h1>Minhas Finanças</h1>
+      <nav>
+        <button data-view="dashboard" class="active">Dashboard</button>
+        <button data-view="movimentos">Lançar movimentos</button>
+        <button data-view="movimentos-mes">Movimentações</button>
+        <button data-view="cartoes">Cartões</button>
+        <button data-view="receitas">Receitas</button>
+  <button data-view="contas">Contas Fixas</button>
+      </nav>
+    </aside>
+
+  <main class="main">
+      <header>
+        <button id="menu-btn" class="menu-btn" aria-label="Menu">☰</button>
+        <h2 id="main-title">Dashboard</h2>
+        <!-- month selector removed per user request -->
+      </header>
+
+      <!-- Conteúdo principal: as views (templates) são injetadas em #content pela app.js -->
+      <section id="content">
+        <!-- Views serão injetadas aqui -->
+      </section>
+
+      <div id="toast" class="toast" aria-live="polite"></div>
+      <footer>
+        <small>Feito por Rian Carraro - riancarraro@gmail.com</small>
+      </footer>
+    </main>
+  </div>
+
+  <!-- Template: Dashboard - apresentado na tela inicial -->
+  <template id="dashboard-tpl">
+    <div class="dashboard">
+      <div class="cards-row">
+        <div class="card">Receitas: <span id="sum-incomes">R$ 0,00</span></div>
+        <div class="card">Gastos: <span id="sum-expenses">R$ 0,00</span></div>
+        <div class="card">Saldo: <span id="sum-balance">R$ 0,00</span></div>
+      </div>
+
+      <!-- Saldo restante por cartão -->
+      <div id="cards-balance" class="cards-row" style="margin-top:12px"></div>
+
+      <div id="latest-movements"></div>
+    </div>
+  </template>
+
+  <!-- Template: Movimentações - formulário para lançar receitas/despesas e lista -->
+  <template id="movimentos-tpl">
+    <div class="movimentos">
+      
+      <h3>Lançar Movimento</h3>
+  <form id="form-movimento" autocomplete="off">
+  <!-- id oculto para editar movimento existente -->
+  <input type="hidden" id="mov-id">
+  <!-- armazena a store alvo (incomes|expenses) quando editando -->
+  <input type="hidden" id="mov-store">
+        <label>Tipo
+          <select id="mov-type">
+            <option value="expense">Despesa</option>
+            <option value="income">Receita</option>
+          </select>
+        </label>
+  <label>Descrição <input id="mov-desc" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+  <label>Data <input type="date" id="mov-date" required></label>
+  <!-- Valor como texto para permitir formatação em R$; inputmode numeric para teclado móvel -->
+  <label>Valor <input type="text" inputmode="numeric" id="mov-value" placeholder="R$ 0,00" required></label>
+        <label>Categoria (opcional)
+          <select id="mov-category">
+            <option value="">-- nenhuma --</option>
+            <option>Mobilidade</option>
+            <option>Despesas</option>
+            <option>Lazer</option>
+            <option>Superflo</option>
+            <option>Reserva de emergencia</option>
+          </select>
+        </label>
+  <label>Loja (opcional) <input id="mov-shop" placeholder="Nome da loja" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+        <label>Cartão (opcional) <select id="mov-card"><option value="">-- nenhum --</option></select></label>
+        <label>Método de pagamento
+          <select id="mov-method">
+            <option value="">-- automático --</option>
+            <option>Cartão de crédito</option>
+            <option>Cartão de débito</option>
+            <option>PIX</option>
+            <option>Boleto</option>
+            <option>À vista</option>
+          </select>
+        </label>
+        <label>Parcelas <input type="number" id="mov-parcels" min="1" value="1"></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="submit">Salvar</button>
+          <button type="button" id="cancel-mov-edit" style="display:none;background:#ddd;color:#000">Cancelar</button>
+        </div>
+      </form>
+
+      <h3>Lista de Movimentos</h3>
+      <div id="list-movements"></div>
+    </div>
+  </template>
+
+  <!-- modal removido: confirmações usam window.confirm agora -->
+
+  <!-- Template: Cartões - cadastrar cartão, cor e datas de fatura -->
+  <template id="cartoes-tpl">
+    <div class="cartoes">
+      <h3>Meus Cartões</h3>
+  <form id="form-card" autocomplete="off">
+        <!-- campo oculto para edição (id do cartão) -->
+  <input type="hidden" id="card-id">
+  <label>Nome <input id="card-name" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+  <label>Cor <input type="color" id="card-color" value="#6ea8fe"></label>
+  <label>Tipo <select id="card-type">
+    <option value="debito">Débito</option>
+    <option value="credito">Crédito</option>
+    <option value="pix">PIX</option>
+    <option value="boleto">Boleto</option>
+  </select></label>
+  <label>Limite <input type="text" inputmode="numeric" id="card-limit" placeholder="R$ 0,00" autocomplete="off"></label>
+  <label>Data fechamento (dia do mês) <input type="number" id="card-open" min="1" max="31" value="1"></label>
+  <label>Data vencimento (dia do mês) <input type="number" id="card-close" min="1" max="31" value="28"></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="submit" id="save-card">Salvar Cartão</button>
+          <button type="button" id="cancel-edit" style="display:none;background:#ddd;color:#000">Cancelar</button>
+        </div>
+      </form>
+      <div id="cards-list"></div>
+    </div>
+  </template>
+
+  <!-- Template: Movimentações do mês - visão mensal com sub-abas -->
+  <template id="movimentos-mes-tpl">
+    <div class="movimentos-mes">
+      <div class="subtabs">
+        <button data-sub="cartoes" class="active">lançamentos</button>
+        <button data-sub="movimentacoes">Movimentações</button>
+      </div>
+      <div class="month-controls" style="margin:10px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label>Mês <input type="month" id="mm-month" value=""></label>
+  <label>Cartão <select id="mm-filter-card"><option value="">Todos</option></select></label>
+        <label>Categoria <select id="mm-filter-category"><option value="">Todas</option><option>Mobilidade</option><option>Despesas</option><option>Lazer</option><option>Superflo</option><option>Reserva de emergencia</option></select></label>
+    </div>
+
+      <div id="mm-content">
+        <div id="mm-cartoes" class="mm-pane">
+          <h4>Lançamentos</h4>
+          <div id="mm-cards-list"></div>
+          <div class="pagination" id="mm-cards-pagination" style="margin-top:8px"></div>
+        </div>
+        <div id="mm-movimentacoes" class="mm-pane" style="display:none">
+          <h4>Movimentações</h4>
+          <div id="mm-mov-list"></div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Template: Receitas - cadastro de entradas recorrentes/ocasional -->
+  <template id="receitas-tpl">
+    <div class="receitas">
+      <h3>Nova Receita</h3>
+      <form id="form-income" autocomplete="off">
+        <input type="hidden" id="income-id">
+        <label>Descrição <input id="income-desc" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+        <label>Data <input type="date" id="income-date" required></label>
+        <label>Valor <input type="text" inputmode="numeric" id="income-value" placeholder="R$ 0,00" required autocomplete="off"></label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="submit">Salvar</button>
+          <button type="button" id="cancel-income-edit" style="display:none;background:#ddd;color:#000">Cancelar</button>
+        </div>
+      </form>
+      <div id="incomes-list"></div>
+    </div>
+  </template>
+
+  <!-- Template: Contas Fixas - cadastro de boletos/contas mensais -->
+  <template id="contas-tpl">
+    <div class="contas">
+      <h3>Contas Fixas</h3>
+  <form id="form-fixed" autocomplete="off">
+        <!-- hidden id for editing -->
+  <input type="hidden" id="fixed-id">
+  <label>Descrição <input id="fixed-desc" required autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></label>
+  <label>Valor <input type="text" inputmode="numeric" id="fixed-value" placeholder="R$ 0,00" required autocomplete="off"></label>
+        <label>Vencimento (dia do mês) <input type="number" id="fixed-day" min="1" max="31" value="1"></label>
+        <label>Categoria (opcional)
+          <select id="fixed-category">
+            <option value="">-- nenhuma --</option>
+            <option>Mobilidade</option>
+            <option>Despesas</option>
+            <option>Lazer</option>
+            <option>Reserva de emergencia</option>
+            <option>Superflo</option>
+          </select>
+        </label>
+        <label>Método de pagamento
+          <select id="fixed-method">
+            <option value="">-- nenhum --</option>
+            <option>Cartão de crédito</option>
+            <option>Cartão de débito</option>
+            <option>PIX</option>
+            <option>Boleto</option>
+            <option>À vista</option>
+          </select>
+        </label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button type="submit">Salvar Conta Fixa</button>
+          <button type="button" id="cancel-fixed-edit" style="display:none;background:#ddd;color:#000">Cancelar</button>
+        </div>
+      </form>
+      <div id="fixed-list"></div>
+    </div>
+  </template>
+
+  <!-- Faturas and Export views removed as per UI simplification request -->
+
+  <!-- Modal: visualizar fatura (abre ao clicar 'Ver fatura' / 'Abrir fatura') -->
+  <div id="invoice-modal" class="invoice-modal" aria-hidden="true">
+    <div class="modal-backdrop" data-action="close"></div>
+    <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="invoice-modal-title">
+      <button class="modal-close" aria-label="Fechar" data-action="close">✕</button>
+      <h3 id="invoice-modal-title">Fatura</h3>
+      <div class="modal-meta" id="invoice-modal-meta">
+        <div class="modal-total" id="invoice-modal-total">Total: R$ 0,00</div>
+        <div class="modal-actions">
+          <button id="invoice-mark-paid">Marcar fatura como paga</button>
+          <button id="invoice-export-pdf">Exportar PDF</button>
+        </div>
+      </div>
+      <div class="invoice-list" tabindex="0" id="invoice-modal-list">
+        <!-- itens da fatura serão inseridos aqui dinamicamente -->
+      </div>
+    </div>
+  </div>
+
+  <script src="db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
